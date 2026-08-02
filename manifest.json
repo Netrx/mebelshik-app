@@ -1,0 +1,22 @@
+{
+  "name": "Мебельщик — часы и доход",
+  "short_name": "Мебельщик",
+  "description": "Учёт заказов, рабочего времени и дохода мебельщика",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f2f0e8",
+  "theme_color": "#18231d",
+  "lang": "ru",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

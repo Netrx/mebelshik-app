@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#18231d">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Мебельщик">
+  <title>Мебельщик — часы и доход</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">УЧЁТ РАБОТЫ</div>
+      <h1>Мебельщик</h1>
+    </div>
+    <button id="installBtn" class="ghost hidden">Установить</button>
+  </header>
+
+  <main>
+    <section id="dashboardView" class="view active">
+      <div class="toolbar">
+        <div>
+          <div class="section-kicker">АНАЛИТИКА</div>
+          <h2>Результаты</h2>
+        </div>
+        <select id="yearSelect" aria-label="Выбранный год"></select>
+      </div>
+
+      <div class="hero-card">
+        <div class="hero-label">Доход за выбранный год</div>
+        <div id="yearIncome" class="hero-value">0 ₽</div>
+        <div id="yearMeta" class="hero-meta"></div>
+      </div>
+
+      <div class="kpi-grid">
+        <article class="kpi"><span>Часы</span><strong id="yearHours">0</strong></article>
+        <article class="kpi"><span>Доход / час</span><strong id="avgHour">0 ₽</strong></article>
+        <article class="kpi"><span>Доход / день</span><strong id="avgDay">0 ₽</strong></article>
+        <article class="kpi"><span>Отработано дней</span><strong id="elapsedDays">0</strong></article>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h3>По месяцам</h3>
+          <span class="muted">Будущие дни не входят в средний доход</span>
+        </div>
+        <div id="monthsList" class="months-list"></div>
+      </div>
+    </section>
+
+    <section id="ordersView" class="view">
+      <div class="toolbar">
+        <div>
+          <div class="section-kicker">ЗАКАЗЫ</div>
+          <h2>История работ</h2>
+        </div>
+        <button id="addOrderBtn" class="primary">+ Заказ</button>
+      </div>
+      <input id="orderSearch" class="search" type="search" placeholder="Поиск по номеру или работе">
+      <div id="ordersList" class="orders-list"></div>
+      <div id="ordersEmpty" class="empty hidden">Заказов пока нет.</div>
+    </section>
+
+    <section id="calendarView" class="view">
+      <div class="toolbar">
+        <div>
+          <div class="section-kicker">КАЛЕНДАРЬ</div>
+          <h2>Рабочие выходные</h2>
+        </div>
+        <select id="calendarYearSelect" aria-label="Год календаря"></select>
+      </div>
+      <div class="notice">Укажите фактические часы для каждой субботы и воскресенья. Ноль означает выходной.</div>
+      <div id="weeksList" class="weeks-list"></div>
+    </section>
+
+    <section id="settingsView" class="view">
+      <div class="toolbar">
+        <div>
+          <div class="section-kicker">НАСТРОЙКИ</div>
+          <h2>Данные и график</h2>
+        </div>
+      </div>
+
+      <div class="panel form-panel">
+        <h3>Стандартный рабочий день</h3>
+        <div class="two-cols">
+          <label>Начало<input id="standardStart" type="time"></label>
+          <label>Конец<input id="standardEnd" type="time"></label>
+        </div>
+        <button id="saveSettingsBtn" class="primary wide">Сохранить график</button>
+      </div>
+
+      <div class="panel form-panel">
+        <h3>Резервная копия</h3>
+        <p class="muted">Данные хранятся только на этом устройстве. Экспорт спасает их от героической гибели вместе с телефоном.</p>
+        <div class="action-stack">
+          <button id="exportBackupBtn" class="secondary">Скачать резервную копию</button>
+          <label class="secondary file-label">Загрузить резервную копию<input id="importBackupInput" type="file" accept=".json,application/json"></label>
+          <button id="exportCsvBtn" class="secondary">Экспорт заказов в CSV</button>
+          <button id="resetBtn" class="danger">Сбросить к данным из Excel</button>
+        </div>
+      </div>
+
+      <div class="panel about">
+        <h3>О приложении</h3>
+        <p>Версия 1.0 · работает офлайн · без регистрации · данные не отправляются на сервер.</p>
+      </div>
+    </section>
+  </main>
+
+  <nav class="bottom-nav">
+    <button data-view="dashboardView" class="nav-btn active"><span>▥</span>Аналитика</button>
+    <button data-view="ordersView" class="nav-btn"><span>≡</span>Заказы</button>
+    <button data-view="calendarView" class="nav-btn"><span>▦</span>Выходные</button>
+    <button data-view="settingsView" class="nav-btn"><span>⚙</span>Настройки</button>
+  </nav>
+
+  <dialog id="orderDialog">
+    <form id="orderForm" method="dialog">
+      <div class="dialog-head">
+        <div>
+          <div class="section-kicker">ЗАКАЗ</div>
+          <h2 id="orderDialogTitle">Новый заказ</h2>
+        </div>
+        <button type="button" id="closeOrderDialog" class="icon-btn">×</button>
+      </div>
+      <input id="orderId" type="hidden">
+      <label>Номер заказа<input id="orderNumber" required placeholder="Например, 1056"></label>
+      <div class="two-cols">
+        <label>Дата начала<input id="startDate" type="date" required></label>
+        <label>Время начала<input id="startTime" type="time" required></label>
+      </div>
+      <div class="two-cols">
+        <label>Дата окончания<input id="endDate" type="date" required></label>
+        <label>Время окончания<input id="endTime" type="time" required></label>
+      </div>
+      <label>Что сделано<textarea id="workDone" rows="3" placeholder="Обработка, присадка, сборка…"></textarea></label>
+      <label>Доход по заказу, ₽<input id="income" type="number" min="0" step="0.01" required></label>
+      <label>Комментарий<textarea id="comment" rows="2"></textarea></label>
+      <div id="orderPreview" class="calculation-preview"></div>
+      <div class="dialog-actions">
+        <button type="button" id="deleteOrderBtn" class="danger hidden">Удалить</button>
+        <button type="submit" class="primary">Сохранить</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="seed.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

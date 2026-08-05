@@ -127,3 +127,20 @@ dialog form { padding:20px; overflow:auto; max-height:92vh; }
   .kpi-grid { grid-template-columns:repeat(4,1fr); }
   .bottom-nav { left:50%; right:auto; width:700px; transform:translateX(-50%); border-left:1px solid var(--line); border-right:1px solid var(--line); border-radius:18px 18px 0 0; }
 }
+.count-badge{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:28px;padding:0 8px;border-radius:99px;background:#e8e5da;font:700 14px/1 system-ui;color:var(--accent-dark);vertical-align:middle}
+.status-badge{display:inline-block;margin-left:6px;padding:4px 7px;border-radius:99px;background:#fff0df;color:var(--accent-dark);font-size:10px;vertical-align:middle}
+.in-progress-card{border-color:#e4bd95;background:#fffaf1}
+.in-progress-card .order-money{color:var(--accent-dark);font-size:12px}
+.month-hours{background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.month-hours+ .month-hours{margin-top:10px}
+.month-hours summary{cursor:pointer;padding:15px;font-weight:800;list-style:none}
+.month-hours summary::-webkit-details-marker{display:none}
+.month-hours summary:after{content:"＋";float:right;color:var(--muted)}
+.month-hours[open] summary:after{content:"−"}
+.day-hours-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;padding:0 12px 12px}
+.day-hour{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:12px;font-size:12px;color:var(--muted)}
+.day-hour input{width:72px;padding:8px;text-align:center}
+.future-day{opacity:.58}
+.field-help{display:block;margin-top:6px;color:var(--muted);font-weight:400;line-height:1.35}
+.bottom-nav{grid-template-columns:repeat(5,1fr)}
+@media(max-width:430px){.day-hours-grid{grid-template-columns:1fr}.nav-btn{font-size:9px}.nav-btn span{font-size:20px}}

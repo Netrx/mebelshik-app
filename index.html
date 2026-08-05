@@ -48,7 +48,7 @@
       <div class="panel">
         <div class="panel-head">
           <h3>По месяцам</h3>
-          <span class="muted">Будущие дни не входят в средний доход</span>
+          <span class="muted">Только завершённые заказы и фактические прошедшие часы</span>
         </div>
         <div id="monthsList" class="months-list"></div>
       </div>
@@ -67,15 +67,29 @@
       <div id="ordersEmpty" class="empty hidden">Заказов пока нет.</div>
     </section>
 
+    <section id="progressView" class="view">
+      <div class="toolbar">
+        <div>
+          <div class="section-kicker">В ПРОЦЕССЕ</div>
+          <h2>Текущие заказы <span id="progressCount" class="count-badge">0</span></h2>
+        </div>
+        <button id="addProgressBtn" class="primary">+ Заказ</button>
+      </div>
+      <div class="notice">Эти заказы отображаются отдельно и не входят в доход, часы и средние показатели до перевода в статус «Завершён».</div>
+      <input id="progressSearch" class="search" type="search" placeholder="Поиск по текущим заказам">
+      <div id="progressList" class="orders-list"></div>
+      <div id="progressEmpty" class="empty hidden">Заказов в процессе нет.</div>
+    </section>
+
     <section id="calendarView" class="view">
       <div class="toolbar">
         <div>
           <div class="section-kicker">КАЛЕНДАРЬ</div>
-          <h2>Рабочие выходные</h2>
+          <h2>Часы по дням</h2>
         </div>
         <select id="calendarYearSelect" aria-label="Год календаря"></select>
       </div>
-      <div class="notice">Укажите фактические часы для каждой субботы и воскресенья. Ноль означает выходной.</div>
+      <div class="notice">Укажите фактически отработанные часы отдельно для любого дня. Будущие даты можно планировать, но до наступления дня они не попадут в аналитику. Ноль означает выходной.</div>
       <div id="weeksList" class="weeks-list"></div>
     </section>
 
@@ -109,15 +123,16 @@
 
       <div class="panel about">
         <h3>О приложении</h3>
-        <p>Версия 1.0 · работает офлайн · без регистрации · данные не отправляются на сервер.</p>
+        <p>Версия 1.1 · работает офлайн · без регистрации · данные не отправляются на сервер.</p>
       </div>
     </section>
   </main>
 
   <nav class="bottom-nav">
     <button data-view="dashboardView" class="nav-btn active"><span>▥</span>Аналитика</button>
-    <button data-view="ordersView" class="nav-btn"><span>≡</span>Заказы</button>
-    <button data-view="calendarView" class="nav-btn"><span>▦</span>Выходные</button>
+    <button data-view="ordersView" class="nav-btn"><span>✓</span>Заказы</button>
+    <button data-view="progressView" class="nav-btn"><span>◷</span>В процессе</button>
+    <button data-view="calendarView" class="nav-btn"><span>▦</span>Часы</button>
     <button data-view="settingsView" class="nav-btn"><span>⚙</span>Настройки</button>
   </nav>
 
@@ -131,17 +146,18 @@
         <button type="button" id="closeOrderDialog" class="icon-btn">×</button>
       </div>
       <input id="orderId" type="hidden">
+      <label>Статус заказа<select id="orderStatus"><option value="completed">Завершён</option><option value="in_progress">В процессе</option></select></label>
       <label>Номер заказа<input id="orderNumber" required placeholder="Например, 1056"></label>
       <div class="two-cols">
         <label>Дата начала<input id="startDate" type="date" required></label>
         <label>Время начала<input id="startTime" type="time" required></label>
       </div>
       <div class="two-cols">
-        <label>Дата окончания<input id="endDate" type="date" required></label>
-        <label>Время окончания<input id="endTime" type="time" required></label>
+        <label><span id="completionLabel">Дата окончания</span><input id="endDate" type="date" required></label>
+        <label><span id="completionTimeLabel">Время окончания</span><input id="endTime" type="time" required></label>
       </div>
       <label>Что сделано<textarea id="workDone" rows="3" placeholder="Обработка, присадка, сборка…"></textarea></label>
-      <label>Доход по заказу, ₽<input id="income" type="number" min="0" step="0.01" required></label>
+      <label>Доход по заказу, ₽<input id="income" type="number" min="0" step="0.01" required><small id="incomeHelp" class="field-help hidden">Можно указать плановый доход. Пока заказ в процессе, он не учитывается.</small></label>
       <label>Комментарий<textarea id="comment" rows="2"></textarea></label>
       <div id="orderPreview" class="calculation-preview"></div>
       <div class="dialog-actions">

@@ -89,7 +89,7 @@
         </div>
         <select id="calendarYearSelect" aria-label="Год календаря"></select>
       </div>
-      <div class="notice">Выберите дату. Кнопка «Начало рабочего дня» фиксирует текущие дату и время, «Пауза» останавливает отсчёт, «Продолжить» возобновляет его, а «Конец рабочего дня» закрывает смену. Ниже можно вручную исправить уже внесённые данные.</div>
+      <div class="notice">Для каждого дня фиксируйте фактическую смену кнопками. Пауза вычитается из рабочего времени. Все расчёты заказов и отчётности используют эти интервалы.</div>
       <div id="weeksList" class="weeks-list"></div>
     </section>
 
@@ -123,7 +123,7 @@
 
       <div class="panel about">
         <h3>О приложении</h3>
-        <p>Версия 1.1 · работает офлайн · без регистрации · данные не отправляются на сервер.</p>
+        <p>Версия 1.2 · работает офлайн · без регистрации · данные не отправляются на сервер.</p>
       </div>
     </section>
   </main>
@@ -146,15 +146,19 @@
         <button type="button" id="closeOrderDialog" class="icon-btn">×</button>
       </div>
       <input id="orderId" type="hidden">
-      <label class="checkbox-row"><input id="orderStatus" type="checkbox"><span>В процессе</span></label>
+      <label class="check-row"><input id="orderInProgress" type="checkbox"><span>В процессе</span></label>
       <label>Номер заказа<input id="orderNumber" required placeholder="Например, 1056"></label>
       <div class="two-cols">
         <label>Дата начала<input id="startDate" type="date" required></label>
-        <label>Время начала<div class="time-with-button"><input id="startTime" type="time" required><button type="button" class="secondary now-btn" data-target="startTime">Сейчас</button></div></label>
+        <label>Время начала
+          <div class="time-with-now"><input id="startTime" type="time" required><button type="button" class="secondary now-btn set-now" data-target="startTime">Сейчас</button></div>
+        </label>
       </div>
-      <div class="two-cols" id="completionFields">
-        <label><span id="completionLabel">Дата окончания</span><input id="endDate" type="date" required></label>
-        <label><span id="completionTimeLabel">Время окончания</span><div class="time-with-button"><input id="endTime" type="time" required><button type="button" class="secondary now-btn" data-target="endTime">Сейчас</button></div></label>
+      <div id="completionFields" class="two-cols">
+        <label>Дата окончания<input id="endDate" type="date"></label>
+        <label>Время окончания
+          <div class="time-with-now"><input id="endTime" type="time"><button type="button" class="secondary now-btn set-now" data-target="endTime">Сейчас</button></div>
+        </label>
       </div>
       <label>Что сделано<textarea id="workDone" rows="3" placeholder="Обработка, присадка, сборка…"></textarea></label>
       <label>Доход по заказу, ₽<input id="income" type="number" min="0" step="0.01" required><small id="incomeHelp" class="field-help hidden">Можно указать плановый доход. Пока заказ в процессе, он не учитывается.</small></label>

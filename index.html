@@ -82,7 +82,6 @@
     </section>
 
     <section id="calendarView" class="view">
-      <div id="currentHoursDate" class="hours-current-date"></div>
       <div class="toolbar">
         <div>
           <div class="section-kicker">КАЛЕНДАРЬ</div>
@@ -100,7 +99,18 @@
           <div class="section-kicker">НАСТРОЙКИ</div>
           <h2>Данные и график</h2>
         </div>
-      </div><div class="panel form-panel">
+      </div>
+
+      <div class="panel form-panel">
+        <h3>Стандартный рабочий день</h3>
+        <div class="two-cols">
+          <label>Начало<input id="standardStart" type="time"></label>
+          <label>Конец<input id="standardEnd" type="time"></label>
+        </div>
+        <button id="saveSettingsBtn" class="primary wide">Сохранить график</button>
+      </div>
+
+      <div class="panel form-panel">
         <h3>Резервная копия</h3>
         <p class="muted">Данные хранятся только на этом устройстве. Экспорт спасает их от героической гибели вместе с телефоном.</p>
         <div class="action-stack">

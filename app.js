@@ -16,7 +16,7 @@ function loadState(){
 function migrateState(data){
   const next=data&&typeof data==="object"?data:clone(window.APP_SEED);
   next.orders=Array.isArray(next.orders)?next.orders:[];
-  next.settings=next.settings||{};
+  next.settings=next.settings||{standardStart:"10:00",standardEnd:"18:00"};
   next.dailyHours=next.dailyHours||{};
   next.weekendHours=next.weekendHours||{};
   next.workDays=next.workDays&&typeof next.workDays==="object"?next.workDays:{};
@@ -39,8 +39,6 @@ function toast(message){
 }
 function money(value){ return new Intl.NumberFormat("ru-RU",{maximumFractionDigits:0}).format(Number(value)||0)+" ₽"; }
 function number(value,digits=1){ return new Intl.NumberFormat("ru-RU",{maximumFractionDigits:digits}).format(Number(value)||0); }
-function durationText(hours){ const total=Math.max(0,Math.round((Number(hours)||0)*60)); const h=Math.floor(total/60), m=total%60; return `${h} ч ${String(m).padStart(2,"0")} мин`; }
-function currentTime24(){ const d=new Date(); return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; }
 function parseTime(value){
   if(!value) return 0;
   const [h,m]=value.split(":").map(Number);
@@ -57,7 +55,7 @@ function mondayISO(date){
   const d=new Date(date),day=(d.getDay()+6)%7;
   return toISODate(addDays(d,-day));
 }
-function standardHours(){ return 0; }
+function standardHours(){ return Math.max(0,parseTime(state.settings.standardEnd)-parseTime(state.settings.standardStart)); }
 function legacyWeekendHours(date){
   const cfg=state.weekendHours[mondayISO(date)]||{sat:0,sun:0};
   return date.getDay()===6?Number(cfg.sat)||0:Number(cfg.sun)||0;
@@ -67,7 +65,7 @@ function scheduledHours(date){
   if(Object.prototype.hasOwnProperty.call(state.dailyHours,key)) return Math.max(0,Number(state.dailyHours[key])||0);
   const dow=date.getDay();
   if(dow===0||dow===6) return legacyWeekendHours(date);
-  return 0;
+  return standardHours();
 }
 function workIntervalsForDate(date){
   const key=typeof date==="string"?date:toISODate(date);
@@ -94,7 +92,7 @@ function workIntervalsForDate(date){
   }
   // Legacy records: keep existing data usable after the migration.
   const d=parseDate(key), hours=scheduledHours(d);
-  return [];
+  return hours>0?[[parseTime(state.settings.standardStart),parseTime(state.settings.standardStart)+hours]]:[];
 }
 function isCompleted(order){ return (order.status||"completed")==="completed"; }
 function overlapHours(a,b,start,end){
@@ -171,11 +169,11 @@ function renderDashboard(){
   const total=data.reduce((a,m)=>({hours:a.hours+m.hours,income:a.income+m.income,days:a.days+m.days}),{hours:0,income:0,days:0});
   const completedCount=state.orders.filter(o=>isCompleted(o)&&o.endDate&&parseDate(o.endDate).getFullYear()===year).length;
   document.getElementById("yearIncome").textContent=money(total.income);
-  document.getElementById("yearHours").textContent=durationText(total.hours);
+  document.getElementById("yearHours").textContent=number(total.hours,1);
   document.getElementById("avgHour").textContent=money(total.hours?total.income/total.hours:0);
   document.getElementById("avgDay").textContent=money(total.days?total.income/total.days:0);
   document.getElementById("elapsedDays").textContent=total.days;
-  document.getElementById("yearMeta").textContent=`${completedCount} завершённых заказов · ${durationText(total.hours)}`;
+  document.getElementById("yearMeta").textContent=`${completedCount} завершённых заказов · ${number(total.hours,1)} часов`;
   const maxIncome=Math.max(1,...data.map(m=>m.income));
   document.getElementById("monthsList").innerHTML=data.map(m=>`
     <div class="month-row">
@@ -216,8 +214,6 @@ function renderProgress(){
 }
 function renderCalendar(){
   const year=Number(document.getElementById("calendarYearSelect").value)||new Date().getFullYear();
-  const currentDateEl=document.getElementById("currentHoursDate");
-  if(currentDateEl) currentDateEl.textContent=new Intl.DateTimeFormat("ru-RU",{weekday:"long",day:"2-digit",month:"long",year:"numeric"}).format(new Date());
   const months=[];
   for(let m=0;m<12;m++){
     const days=[];
@@ -228,7 +224,7 @@ function renderCalendar(){
       const pauseActive=!!wd.pausedAt&&!wd.end;
       const pauseText=(wd.pauses||[]).map((p,i)=>`<div class="pause-row"><span>Пауза ${i+1}</span><input type="time" data-pause-start="${key}" data-index="${i}" value="${p.start||""}"><span>–</span><input type="time" data-pause-end="${key}" data-index="${i}" value="${p.end||""}"><button type="button" class="small danger pause-delete" data-date="${key}" data-index="${i}">×</button></div>`).join("");
       days.push(`<article class="workday-card ${pauseActive?"on-pause":""}">
-        <div class="workday-head"><strong>${WEEKDAYS[d.getDay()]}, ${String(d.getDate()).padStart(2,"0")}.${String(m+1).padStart(2,"0")}</strong><span>${durationText(worked)}</span></div>
+        <div class="workday-head"><strong>${WEEKDAYS[d.getDay()]}, ${String(d.getDate()).padStart(2,"0")}.${String(m+1).padStart(2,"0")}</strong><span>${number(worked,2)} ч</span></div>
         <div class="workday-actions">
           <button type="button" class="primary work-start" data-date="${key}">▶ Начало рабочего дня</button>
           <button type="button" class="secondary work-pause" data-date="${key}" ${!wd.start||!!wd.end?"disabled":""}>${pauseActive?"▶ Продолжить":"Ⅱ Пауза"}</button>
@@ -247,7 +243,7 @@ function renderCalendar(){
   const list=document.getElementById("weeksList");
   list.innerHTML=months.join("");
 
-  const nowTime=currentTime24;
+  const nowTime=()=>{const d=new Date();return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;};
   list.querySelectorAll(".work-start").forEach(btn=>btn.onclick=()=>{
     const date=btn.dataset.date, t=nowTime(), old=state.workDays[date]||{};
     state.workDays[date]={...old,start:t,end:"",pausedAt:"",pauses:Array.isArray(old.pauses)?old.pauses:[]};
@@ -296,7 +292,10 @@ function renderCalendar(){
     state.workDays[date]=wd;saveState();toast("Пауза изменена");
   });
 }
-function renderSettings(){}
+function renderSettings(){
+  document.getElementById("standardStart").value=state.settings.standardStart;
+  document.getElementById("standardEnd").value=state.settings.standardEnd;
+}
 function renderAll(){ fillYearSelects(); renderDashboard(); renderOrders(); renderProgress(); renderCalendar(); renderSettings(); }
 function escapeHtml(value){ return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c])); }
 function formatDate(s){
@@ -320,8 +319,8 @@ function openOrder(id=null){
   document.getElementById("orderNumber").value=order?.number||"";
   document.getElementById("startDate").value=order?.startDate||todayISO();
   document.getElementById("endDate").value=order?.endDate||todayISO();
-  document.getElementById("startTime").value=order?.startTime||currentTime24();
-  document.getElementById("endTime").value=order?.endTime||currentTime24();
+  document.getElementById("startTime").value=order?.startTime||state.settings.standardStart;
+  document.getElementById("endTime").value=order?.endTime||state.settings.standardEnd;
   document.getElementById("workDone").value=order?.work||"";
   document.getElementById("income").value=order?.income??"";
   document.getElementById("comment").value=order?.comment||"";
@@ -382,6 +381,14 @@ document.getElementById("orderSearch").oninput=renderOrders;
 document.getElementById("progressSearch").oninput=renderProgress;
 document.getElementById("yearSelect").onchange=renderDashboard;
 document.getElementById("calendarYearSelect").onchange=renderCalendar;
+document.getElementById("saveSettingsBtn").onclick=()=>{
+  const start=document.getElementById("standardStart").value,end=document.getElementById("standardEnd").value;
+  if(parseTime(end)<=parseTime(start)){toast("Конец дня должен быть позже начала");return;}
+  state.settings={standardStart:start,standardEnd:end};saveState();toast("График сохранён");
+};
+function download(name,text,type){
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
 document.getElementById("exportBackupBtn").onclick=()=>download(`мебельщик_backup_${todayISO()}.json`,JSON.stringify(state,null,2),"application/json");
 document.getElementById("exportCsvBtn").onclick=()=>{
   const rows=[["Статус","Номер заказа","Дата начала","Время начала","Дата выполнения","Время выполнения","Что сделано","Доход","Часы на сегодня","Доход в час","Комментарий"]];

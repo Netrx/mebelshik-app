@@ -18,7 +18,15 @@ function migrateState(data){
   next.orders=Array.isArray(next.orders)?next.orders:[];
   next.settings=next.settings||{standardStart:"10:00",standardEnd:"18:00"};
   next.dailyHours=next.dailyHours||{};
+  next.workDays=next.workDays||{};
   next.weekendHours=next.weekendHours||{};
+  Object.entries(next.dailyHours).forEach(([date,hours])=>{
+    if(!next.workDays[date]){
+      const h=Math.max(0,Number(hours)||0), start=next.settings.standardStart||"10:00";
+      const endMinutes=Math.min(1439,Math.round((parseTime(start)+h)*60));
+      next.workDays[date]={start,end:`${String(Math.floor(endMinutes/60)).padStart(2,"0")}:${String(endMinutes%60).padStart(2,"0")}`,pauses:[]};
+    }
+  });
   next.orders=next.orders.map(o=>({
     ...o,
     status:o.status||(!o.endDate?"in_progress":"completed")
@@ -52,48 +60,72 @@ function mondayISO(date){
   const d=new Date(date),day=(d.getDay()+6)%7;
   return toISODate(addDays(d,-day));
 }
-function standardHours(){ return Math.max(0,parseTime(state.settings.standardEnd)-parseTime(state.settings.standardStart)); }
-function legacyWeekendHours(date){
-  const cfg=state.weekendHours[mondayISO(date)]||{sat:0,sun:0};
-  return date.getDay()===6?Number(cfg.sat)||0:Number(cfg.sun)||0;
+function standardHours(){
+  return Math.max(0,parseTime(state.settings.standardEnd)-parseTime(state.settings.standardStart));
 }
-function scheduledHours(date){
-  const key=toISODate(date);
-  if(Object.prototype.hasOwnProperty.call(state.dailyHours,key)) return Math.max(0,Number(state.dailyHours[key])||0);
-  const dow=date.getDay();
-  if(dow===0||dow===6) return legacyWeekendHours(date);
-  return standardHours();
+function timeToMinutes(value){
+  if(!value)return null; const [h,m]=String(value).split(":").map(Number);
+  return Number.isFinite(h)&&Number.isFinite(m)?h*60+m:null;
 }
-function isCompleted(order){ return (order.status||"completed")==="completed"; }
-function dailyBreakdown(order,{pastOnly=false}={}){
-  if(!order.startDate||!order.endDate) return [];
-  const start=parseDate(order.startDate),end=parseDate(order.endDate);
-  if(end<start) return [];
-  const out=[],today=todayISO();
-  for(let d=new Date(start);d<=end;d=addDays(d,1)){
-    const iso=toISODate(d);
-    if(pastOnly&&iso>today) continue;
-    const scheduled=scheduledHours(d);
-    let hours=0;
-    const same=iso===order.startDate&&iso===order.endDate;
-    const first=iso===order.startDate;
-    const last=iso===order.endDate;
-    if(same){
-      hours=Math.max(0,parseTime(order.endTime)-parseTime(order.startTime));
-    }else if(first){
-      hours=Math.max(0,parseTime(state.settings.standardEnd)-parseTime(order.startTime));
-    }else if(last){
-      hours=Math.max(0,parseTime(order.endTime)-parseTime(state.settings.standardStart));
-    }else{
-      hours=scheduled;
+function minutesToTime(minutes){
+  minutes=Math.max(0,Math.min(1439,Math.round(minutes)));
+  return `${String(Math.floor(minutes/60)).padStart(2,"0")}:${String(minutes%60).padStart(2,"0")}`;
+}
+function workDayConfig(date){
+  const key=typeof date==="string"?date:toISODate(date), saved=state.workDays?.[key];
+  if(saved&&saved.start&&saved.end)return {start:saved.start,end:saved.end,pauses:Array.isArray(saved.pauses)?saved.pauses:[]};
+  const oldHours=Object.prototype.hasOwnProperty.call(state.dailyHours||{},key)?Number(state.dailyHours[key]):null;
+  if(oldHours!==null){
+    const start=state.settings.standardStart||"10:00";
+    return {start,end:minutesToTime((timeToMinutes(start)||0)+Math.max(0,oldHours)*60),pauses:[]};
+  }
+  const d=parseDate(key);
+  if(d.getDay()===0||d.getDay()===6){
+    const cfg=state.weekendHours?.[mondayISO(d)]||{sat:0,sun:0}, h=d.getDay()===6?Number(cfg.sat)||0:Number(cfg.sun)||0;
+    if(h<=0)return {start:null,end:null,pauses:[]};
+    const start=state.settings.standardStart||"10:00";
+    return {start,end:minutesToTime((timeToMinutes(start)||0)+h*60),pauses:[]};
+  }
+  return {start:state.settings.standardStart||"10:00",end:state.settings.standardEnd||"18:00",pauses:[]};
+}
+function workDayIntervals(date){
+  const cfg=workDayConfig(date),s=timeToMinutes(cfg.start),e=timeToMinutes(cfg.end);
+  if(s===null||e===null||e<=s)return [];
+  let intervals=[[s,e]];
+  for(const p of cfg.pauses||[]){
+    const ps=timeToMinutes(p.start),pe=timeToMinutes(p.end);
+    if(ps===null||pe===null||pe<=ps)continue;
+    const next=[];
+    for(const [a,b] of intervals){
+      if(pe<=a||ps>=b){next.push([a,b]);continue;}
+      if(ps>a)next.push([a,Math.min(ps,b)]);
+      if(pe<b)next.push([Math.max(pe,a),b]);
     }
-    if(scheduled===0) hours=0;
-    else if(!same&&(first||last)) hours=Math.min(hours,scheduled);
-    out.push({date:iso,hours});
+    intervals=next;
+  }
+  return intervals.filter(([a,b])=>b>a);
+}
+function scheduledHours(date){ return workDayIntervals(date).reduce((s,[a,b])=>s+(b-a)/60,0); }
+function overlapHours(from,to,date){
+  if(from===null||to===null||to<=from)return 0;
+  return workDayIntervals(date).reduce((s,[a,b])=>s+Math.max(0,Math.min(to,b)-Math.max(from,a))/60,0);
+}
+function dailyBreakdown(order,{pastOnly=false}={}){
+  if(!order.startDate)return [];
+  const start=parseDate(order.startDate), today=todayISO(), end=parseDate(order.endDate||today);
+  if(end<start)return [];
+  const out=[];
+  for(let d=new Date(start);d<=end;d=addDays(d,1)){
+    const iso=toISODate(d); if(pastOnly&&iso>today)continue;
+    const from=iso===order.startDate?(timeToMinutes(order.startTime)||0):0;
+    const to=order.endDate&&iso===order.endDate?(timeToMinutes(order.endTime)||1439):
+      (!order.endDate&&iso===today)?new Date().getHours()*60+new Date().getMinutes():1439;
+    out.push({date:iso,hours:overlapHours(from,to,d)});
   }
   return out;
 }
-function orderHours(order,options){ return dailyBreakdown(order,options).reduce((s,x)=>s+x.hours,0); }
+function orderHours(order,options){return dailyBreakdown(order,options).reduce((s,x)=>s+x.hours,0);}
+
 function analytics(year){
   const months=Array.from({length:12},(_,i)=>({month:i,hours:0,income:0,dates:new Set()}));
   for(const order of state.orders.filter(isCompleted)){
@@ -181,22 +213,52 @@ function renderProgress(){
   document.getElementById("progressCount").textContent=rows.length;
   list.querySelectorAll(".order-card").forEach(el=>el.onclick=()=>openOrder(el.dataset.id));
 }
+function nowTimeValue(){const d=new Date();return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;}
 function renderCalendar(){
-  const year=Number(document.getElementById("calendarYearSelect").value)||new Date().getFullYear();
-  const months=[];
+  const year=Number(document.getElementById("calendarYearSelect").value)||new Date().getFullYear(),months=[];
   for(let m=0;m<12;m++){
     const days=[];
     for(let d=new Date(year,m,1,12);d.getMonth()===m;d=addDays(d,1)){
-      const key=toISODate(d),value=scheduledHours(d),future=key>todayISO();
-      days.push(`<label class="day-hour ${future?"future-day":""}"><span>${WEEKDAYS[d.getDay()]}, ${String(d.getDate()).padStart(2,"0")}.${String(m+1).padStart(2,"0")}</span><input class="daily-hour" data-date="${key}" type="number" min="0" max="24" step="0.5" value="${Math.round(value*10)/10}"></label>`);
+      const key=toISODate(d),cfg=workDayConfig(key),future=key>todayISO();
+      const pauses=(cfg.pauses||[]).map((p,i)=>`<div class="pause-row" data-date="${key}" data-index="${i}">
+        <input class="pause-start" type="time" value="${p.start||""}"><span>—</span>
+        <input class="pause-end" type="time" value="${p.end||""}">
+        <button type="button" class="remove-pause icon-btn small">×</button></div>`).join("");
+      days.push(`<div class="day-hour day-schedule ${future?"future-day":""}" data-date="${key}">
+        <div class="day-head"><strong>${WEEKDAYS[d.getDay()]}, ${String(d.getDate()).padStart(2,"0")}.${String(m+1).padStart(2,"0")}</strong><span class="day-total">${number(scheduledHours(d),1)} ч</span></div>
+        <div class="day-time-row"><label>Начало рабочего дня<input class="day-start" type="time" value="${cfg.start||""}"></label><button type="button" class="now-btn day-start-now">Начало рабочего дня</button></div>
+        <div class="day-time-row"><label>Конец рабочего дня<input class="day-end" type="time" value="${cfg.end||""}"></label><button type="button" class="now-btn day-end-now">Конец рабочего дня</button></div>
+        <div class="pauses"><div class="pause-title">Паузы</div>${pauses||'<div class="muted small-text">Нет пауз</div>'}</div>
+        <button type="button" class="secondary add-pause">＋ Добавить паузу</button>
+      </div>`);
     }
     months.push(`<details class="month-hours" ${m===new Date().getMonth()&&year===new Date().getFullYear()?"open":""}><summary>${MONTHS[m]}</summary><div class="day-hours-grid">${days.join("")}</div></details>`);
   }
-  const list=document.getElementById("weeksList");
-  list.innerHTML=months.join("");
-  list.querySelectorAll(".daily-hour").forEach(el=>el.onchange=()=>{
-    state.dailyHours[el.dataset.date]=Math.max(0,Math.min(24,Number(el.value)||0));
-    saveState(); toast("Часы дня сохранены");
+  const list=document.getElementById("weeksList");list.innerHTML=months.join("");
+  const persist=date=>{
+    const card=list.querySelector(`.day-schedule[data-date="${date}"]`),start=card.querySelector(".day-start").value,end=card.querySelector(".day-end").value;
+    if(start&&end&&timeToMinutes(end)<=timeToMinutes(start)){toast("Конец рабочего дня должен быть позже начала");return false;}
+    const pauses=[...card.querySelectorAll(".pause-row")].map(r=>({start:r.querySelector(".pause-start").value,end:r.querySelector(".pause-end").value})).filter(p=>p.start&&p.end);
+    state.workDays[date]={start,end,pauses};state.dailyHours[date]=scheduledHours(parseDate(date));return true;
+  };
+  list.querySelectorAll(".day-start,.day-end,.pause-start,.pause-end").forEach(el=>el.onchange=()=>{
+    const date=el.closest(".day-schedule").dataset.date;if(persist(date)){saveState();toast("Рабочее время сохранено");}
+  });
+  list.querySelectorAll(".day-start-now").forEach(btn=>btn.onclick=()=>{
+    const card=btn.closest(".day-schedule");card.querySelector(".day-start").value=nowTimeValue();
+    if(persist(card.dataset.date)){saveState();toast("Начало рабочего дня установлено");}
+  });
+  list.querySelectorAll(".day-end-now").forEach(btn=>btn.onclick=()=>{
+    const card=btn.closest(".day-schedule");card.querySelector(".day-end").value=nowTimeValue();
+    if(persist(card.dataset.date)){saveState();toast("Конец рабочего дня установлен");}
+  });
+  list.querySelectorAll(".add-pause").forEach(btn=>btn.onclick=()=>{
+    const date=btn.closest(".day-schedule").dataset.date,cfg=workDayConfig(date);
+    cfg.pauses.push({start:nowTimeValue(),end:""});state.workDays[date]=cfg;saveState();toast("Пауза добавлена");
+  });
+  list.querySelectorAll(".remove-pause").forEach(btn=>btn.onclick=()=>{
+    const card=btn.closest(".day-schedule"),date=card.dataset.date,index=Number(btn.closest(".pause-row").dataset.index),cfg=workDayConfig(date);
+    cfg.pauses.splice(index,1);state.workDays[date]=cfg;saveState();toast("Пауза удалена");
   });
 }
 function renderSettings(){
@@ -210,9 +272,10 @@ function formatDate(s){
   return new Intl.DateTimeFormat("ru-RU",{day:"2-digit",month:"2-digit",year:"2-digit"}).format(parseDate(s));
 }
 function syncStatusFields(){
-  const inProgress=document.getElementById("orderStatus").value==="in_progress";
-  document.getElementById("completionLabel").textContent=inProgress?"Плановая дата выполнения":"Дата окончания";
-  document.getElementById("completionTimeLabel").textContent=inProgress?"Плановое время":"Время окончания";
+  const inProgress=document.getElementById("orderInProgress").checked;
+  document.getElementById("completionFields").classList.toggle("hidden",inProgress);
+  document.getElementById("endDate").required=!inProgress;
+  document.getElementById("endTime").required=!inProgress;
   document.getElementById("income").required=!inProgress;
   document.getElementById("incomeHelp").classList.toggle("hidden",!inProgress);
   updateOrderPreview();
@@ -223,7 +286,7 @@ function openOrder(id=null){
   document.getElementById("orderDialogTitle").textContent=order?"Редактировать заказ":"Новый заказ";
   document.getElementById("deleteOrderBtn").classList.toggle("hidden",!order);
   document.getElementById("orderId").value=order?.id||"";
-  document.getElementById("orderStatus").value=order?.status||"completed";
+  document.getElementById("orderInProgress").checked=(order?.status||"completed")==="in_progress";
   document.getElementById("orderNumber").value=order?.number||"";
   document.getElementById("startDate").value=order?.startDate||todayISO();
   document.getElementById("endDate").value=order?.endDate||todayISO();
@@ -238,7 +301,7 @@ function openOrder(id=null){
 function formOrder(){
   return {
     id:document.getElementById("orderId").value||crypto.randomUUID(),
-    status:document.getElementById("orderStatus").value,
+    status:document.getElementById("orderInProgress").checked?"in_progress":"completed",
     number:document.getElementById("orderNumber").value.trim(),
     startDate:document.getElementById("startDate").value,
     startTime:document.getElementById("startTime").value,
@@ -251,7 +314,7 @@ function formOrder(){
   };
 }
 function updateOrderPreview(){
-  const o=formOrder(),h=orderHours(o,{pastOnly:o.status==="in_progress"}),per=h?o.income/h:0;
+  const o=formOrder(),h=orderHours(o,{pastOnly:true}),per=h?o.income/h:0;
   document.getElementById("orderPreview").textContent=o.status==="in_progress"
     ?`В процессе: ${number(h,1)} ч на сегодня. В итогах не учитывается.`
     :`Расчёт: ${number(h,1)} ч · ${money(per)} в час`;
@@ -263,8 +326,9 @@ document.querySelectorAll(".nav-btn").forEach(btn=>btn.onclick=()=>{
   scrollTo({top:0,behavior:"smooth"});
 });
 document.getElementById("addOrderBtn").onclick=()=>openOrder();
-document.getElementById("addProgressBtn").onclick=()=>{openOrder();document.getElementById("orderStatus").value="in_progress";syncStatusFields();};
+document.getElementById("addProgressBtn").onclick=()=>{openOrder();document.getElementById("orderInProgress").checked=true;syncStatusFields();};
 document.getElementById("closeOrderDialog").onclick=()=>document.getElementById("orderDialog").close();
+document.querySelectorAll(".set-now-btn").forEach(btn=>btn.onclick=()=>{const target=document.getElementById(btn.dataset.target);if(target){target.value=nowTimeValue();updateOrderPreview();}});
 document.getElementById("orderForm").onsubmit=e=>{
   e.preventDefault();
   const o=formOrder();
@@ -279,7 +343,7 @@ document.getElementById("deleteOrderBtn").onclick=()=>{
   state.orders=state.orders.filter(o=>o.id!==id);saveState();document.getElementById("orderDialog").close();toast("Заказ удалён");
 };
 ["startDate","endDate","startTime","endTime","income"].forEach(id=>document.getElementById(id).addEventListener("input",updateOrderPreview));
-document.getElementById("orderStatus").addEventListener("change",syncStatusFields);
+document.getElementById("orderInProgress").addEventListener("change",syncStatusFields);
 document.getElementById("orderSearch").oninput=renderOrders;
 document.getElementById("progressSearch").oninput=renderProgress;
 document.getElementById("yearSelect").onchange=renderDashboard;

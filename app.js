@@ -16,12 +16,16 @@ function loadState(){
 function migrateState(data){
   const next=data&&typeof data==="object"?data:clone(window.APP_SEED);
   next.orders=Array.isArray(next.orders)?next.orders:[];
-  next.settings=next.settings||{standardStart:"10:00",standardEnd:"18:00"};
+  next.settings=next.settings||{};
   next.dailyHours=next.dailyHours||{};
   next.weekendHours=next.weekendHours||{};
-  next.workDays=next.workDays&&typeof next.workDays==="object"?next.workDays:{};
-  // Preserve existing hour data. New work-day records take priority, while
-  // legacy dailyHours/weekendHours remain available as a fallback.
+  next.workDays=next.workDays||{};
+  for(const [date,h] of Object.entries(next.dailyHours)){
+    if(next.workDays[date]||!Number(h)) continue;
+    const mins=Math.round(Number(h)*60);
+    const start=9*60;
+    next.workDays[date]={start:'09:00',end:`${String(Math.floor((start+mins)/60)%24).padStart(2,'0')}:${String((start+mins)%60).padStart(2,'0')}`,pauses:[],legacy:true};
+  }
   next.orders=next.orders.map(o=>({
     ...o,
     status:o.status||(!o.endDate?"in_progress":"completed")
@@ -55,7 +59,7 @@ function mondayISO(date){
   const d=new Date(date),day=(d.getDay()+6)%7;
   return toISODate(addDays(d,-day));
 }
-function standardHours(){ return Math.max(0,parseTime(state.settings.standardEnd)-parseTime(state.settings.standardStart)); }
+function standardHours(){ return 0; }
 function legacyWeekendHours(date){
   const cfg=state.weekendHours[mondayISO(date)]||{sat:0,sun:0};
   return date.getDay()===6?Number(cfg.sat)||0:Number(cfg.sun)||0;
@@ -65,66 +69,63 @@ function scheduledHours(date){
   if(Object.prototype.hasOwnProperty.call(state.dailyHours,key)) return Math.max(0,Number(state.dailyHours[key])||0);
   const dow=date.getDay();
   if(dow===0||dow===6) return legacyWeekendHours(date);
-  return standardHours();
-}
-function workIntervalsForDate(date){
-  const key=typeof date==="string"?date:toISODate(date);
-  const wd=state.workDays?.[key];
-  if(wd&&wd.start){
-    const start=parseTime(wd.start);
-    const end=wd.end?parseTime(wd.end):parseTime(wd.currentEnd||"");
-    if(end>start){
-      const pauses=Array.isArray(wd.pauses)?wd.pauses:[];
-      const intervals=[];
-      let cursor=start;
-      pauses.forEach(p=>{
-        const ps=parseTime(p.start), pe=parseTime(p.end);
-        if(ps>cursor) intervals.push([cursor,Math.min(ps,end)]);
-        if(pe>cursor) cursor=Math.max(cursor,pe);
-      });
-      if(cursor<end) intervals.push([cursor,end]);
-      return intervals.filter(x=>x[1]>x[0]);
-    }
-    if(!wd.end && wd.pausedAt){
-      return [[start,parseTime(wd.pausedAt)]].filter(x=>x[1]>x[0]);
-    }
-    return [];
-  }
-  // Legacy records: keep existing data usable after the migration.
-  const d=parseDate(key), hours=scheduledHours(d);
-  return hours>0?[[parseTime(state.settings.standardStart),parseTime(state.settings.standardStart)+hours]]:[];
+  return 0;
 }
 function isCompleted(order){ return (order.status||"completed")==="completed"; }
-function overlapHours(a,b,start,end){
-  return Math.max(0,Math.min(b,end)-Math.max(a,start));
+function workDayFor(date){
+  const key=typeof date==='string'?date:toISODate(date);
+  state.workDays=state.workDays||{};
+  return state.workDays[key]||null;
 }
-function orderHoursOnDate(order, iso){
-  const dayStart=parseDate(iso);
-  const isFirst=iso===order.startDate;
-  const isLast=iso===order.endDate || (order.status==="in_progress" && iso===todayISO());
-  const orderStart=isFirst?parseTime(order.startTime):0;
-  const now=new Date();
-  const currentHour=now.getHours()+now.getMinutes()/60;
-  const orderEnd=(order.status==="in_progress" && iso===todayISO())?currentHour:(isLast?parseTime(order.endTime):24);
-  if(order.status==="in_progress" && iso>todayISO()) return 0;
-  return workIntervalsForDate(iso).reduce((s,[a,b])=>s+overlapHours(a,b,orderStart,orderEnd),0);
+function workIntervals(day){
+  if(!day||!day.start) return [];
+  const end=day.end||null;
+  const pauses=Array.isArray(day.pauses)?day.pauses:[];
+  const finish=end||new Date().toTimeString().slice(0,5);
+  const start=parseTime(day.start), stop=parseTime(finish);
+  if(stop<=start) return [];
+  const points=[[start,stop]];
+  for(const p of pauses){
+    if(!p.start) continue;
+    const ps=parseTime(p.start), pe=parseTime(p.end||finish);
+    if(pe<=ps) continue;
+    const next=[];
+    for(const [a,b] of points){
+      if(pe<=a||ps>=b){ next.push([a,b]); continue; }
+      if(ps>a) next.push([a,ps]);
+      if(pe<b) next.push([pe,b]);
+    }
+    points.splice(0,points.length,...next);
+  }
+  return points.filter(([a,b])=>b>a);
+}
+function minutesForRange(day,dateStart,dateEnd){
+  const intervals=workIntervals(day);
+  let total=0;
+  for(const [a,b] of intervals){ total+=Math.max(0,Math.min(b,dateEnd)-Math.max(a,dateStart)); }
+  return total;
 }
 function dailyBreakdown(order,{pastOnly=false}={}){
   if(!order.startDate) return [];
-  const endIso=order.endDate||todayISO();
-  const start=parseDate(order.startDate),end=parseDate(endIso);
+  const start=parseDate(order.startDate),end=parseDate(order.endDate||order.startDate);
   if(end<start) return [];
   const out=[],today=todayISO();
   for(let d=new Date(start);d<=end;d=addDays(d,1)){
     const iso=toISODate(d);
     if(pastOnly&&iso>today) continue;
-    const hours=orderHoursOnDate(order,iso);
-    if(hours>0) out.push({date:iso,hours});
+    const day=workDayFor(iso);
+    if(!day||!day.start) { out.push({date:iso,hours:0}); continue; }
+    const same=iso===order.startDate&&iso===order.endDate;
+    const first=iso===order.startDate,last=iso===order.endDate;
+    let from=first?parseTime(order.startTime||day.start):parseTime(day.start);
+    let to=last?(order.endTime?parseTime(order.endTime):(iso===todayISO()?parseTime(new Date().toTimeString().slice(0,5)):parseTime(day.end||day.start))):parseTime(day.end||day.start);
+    if(to<=from) { out.push({date:iso,hours:0}); continue; }
+    const mins=minutesForRange(day,from,to);
+    out.push({date:iso,hours:mins/60});
   }
   return out;
 }
 function orderHours(order,options){ return dailyBreakdown(order,options).reduce((s,x)=>s+x.hours,0); }
-
 function analytics(year){
   const months=Array.from({length:12},(_,i)=>({month:i,hours:0,income:0,dates:new Set()}));
   for(const order of state.orders.filter(isCompleted)){
@@ -218,93 +219,29 @@ function renderCalendar(){
   for(let m=0;m<12;m++){
     const days=[];
     for(let d=new Date(year,m,1,12);d.getMonth()===m;d=addDays(d,1)){
-      const key=toISODate(d), wd=state.workDays?.[key]||{};
-      const intervals=workIntervalsForDate(key);
-      const worked=intervals.reduce((s,[a,b])=>s+b-a,0);
-      const pauseActive=!!wd.pausedAt&&!wd.end;
-      const pauseText=(wd.pauses||[]).map((p,i)=>`<div class="pause-row"><span>Пауза ${i+1}</span><input type="time" data-pause-start="${key}" data-index="${i}" value="${p.start||""}"><span>–</span><input type="time" data-pause-end="${key}" data-index="${i}" value="${p.end||""}"><button type="button" class="small danger pause-delete" data-date="${key}" data-index="${i}">×</button></div>`).join("");
-      days.push(`<article class="workday-card ${pauseActive?"on-pause":""}">
-        <div class="workday-head"><strong>${WEEKDAYS[d.getDay()]}, ${String(d.getDate()).padStart(2,"0")}.${String(m+1).padStart(2,"0")}</strong><span>${number(worked,2)} ч</span></div>
-        <div class="workday-actions">
-          <button type="button" class="primary work-start" data-date="${key}">▶ Начало рабочего дня</button>
-          <button type="button" class="secondary work-pause" data-date="${key}" ${!wd.start||!!wd.end?"disabled":""}>${pauseActive?"▶ Продолжить":"Ⅱ Пауза"}</button>
-          <button type="button" class="secondary work-end" data-date="${key}" ${!wd.start||!!wd.end?"disabled":""}>■ Конец рабочего дня</button>
-        </div>
-        <div class="workday-times">
-          <label>Начало<input type="time" class="work-edit-start" data-date="${key}" value="${wd.start||""}"></label>
-          <label>Конец<input type="time" class="work-edit-end" data-date="${key}" value="${wd.end||""}"></label>
-        </div>
-        <div class="pause-list">${pauseText}</div>
-        <button type="button" class="secondary add-pause" data-date="${key}" ${!wd.start||!!wd.end?"disabled":""}>+ Добавить паузу</button>
-      </article>`);
+      const key=toISODate(d),value=scheduledHours(d),future=key>todayISO();
+      days.push(`<label class="day-hour ${future?"future-day":""}"><span>${WEEKDAYS[d.getDay()]}, ${String(d.getDate()).padStart(2,"0")}.${String(m+1).padStart(2,"0")}</span><input class="daily-hour" data-date="${key}" type="number" min="0" max="24" step="0.5" value="${Math.round(value*10)/10}"></label>`);
     }
-    months.push(`<details class="month-hours" ${m===new Date().getMonth()&&year===new Date().getFullYear()?"open":""}><summary>${MONTHS[m]}</summary><div class="workdays-grid">${days.join("")}</div></details>`);
+    months.push(`<details class="month-hours" ${m===new Date().getMonth()&&year===new Date().getFullYear()?"open":""}><summary>${MONTHS[m]}</summary><div class="day-hours-grid">${days.join("")}</div></details>`);
   }
   const list=document.getElementById("weeksList");
   list.innerHTML=months.join("");
-
-  const nowTime=()=>{const d=new Date();return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;};
-  list.querySelectorAll(".work-start").forEach(btn=>btn.onclick=()=>{
-    const date=btn.dataset.date, t=nowTime(), old=state.workDays[date]||{};
-    state.workDays[date]={...old,start:t,end:"",pausedAt:"",pauses:Array.isArray(old.pauses)?old.pauses:[]};
-    saveState(); toast(`Начало: ${date} ${t}`);
-  });
-  list.querySelectorAll(".work-pause").forEach(btn=>btn.onclick=()=>{
-    const date=btn.dataset.date, wd=state.workDays[date]||{};
-    if(wd.pausedAt){
-      const t=nowTime(), ps=parseTime(wd.pausedAt), pe=parseTime(t);
-      if(pe<=ps){toast("Время продолжения должно быть позже паузы");return;}
-      wd.pauses=[...(wd.pauses||[]),{start:wd.pausedAt,end:t}]; wd.pausedAt="";
-      state.workDays[date]=wd; saveState(); toast("Работа продолжена");
-    }else{
-      wd.pausedAt=nowTime(); state.workDays[date]=wd; saveState(); toast("Пауза начата");
-    }
-  });
-  list.querySelectorAll(".work-end").forEach(btn=>btn.onclick=()=>{
-    const date=btn.dataset.date, wd=state.workDays[date]||{}, t=nowTime();
-    if(wd.pausedAt){
-      const ps=parseTime(wd.pausedAt),pe=parseTime(t);
-      if(pe>ps) wd.pauses=[...(wd.pauses||[]),{start:wd.pausedAt,end:t}];
-      wd.pausedAt="";
-    }
-    if(parseTime(t)<=parseTime(wd.start)){toast("Конец должен быть позже начала");return;}
-    wd.end=t; state.workDays[date]=wd; saveState(); toast(`Конец смены: ${t}`);
-  });
-  list.querySelectorAll(".work-edit-start,.work-edit-end").forEach(input=>input.onchange=()=>{
-    const date=input.dataset.date,wd=state.workDays[date]||{};
-    wd.start=document.querySelector(`.work-edit-start[data-date="${date}"]`).value;
-    wd.end=document.querySelector(`.work-edit-end[data-date="${date}"]`).value;
-    if(wd.start&&wd.end&&parseTime(wd.end)<=parseTime(wd.start)){toast("Конец должен быть позже начала");return;}
-    state.workDays[date]=wd;saveState();toast("Рабочий день изменён");
-  });
-  list.querySelectorAll(".add-pause").forEach(btn=>btn.onclick=()=>{
-    const date=btn.dataset.date,wd=state.workDays[date]||{};
-    wd.pauses=[...(wd.pauses||[]),{start:"",end:""}];state.workDays[date]=wd;saveState();toast("Пауза добавлена");
-  });
-  list.querySelectorAll(".pause-delete").forEach(btn=>btn.onclick=()=>{
-    const date=btn.dataset.date,i=Number(btn.dataset.index),wd=state.workDays[date]||{};
-    wd.pauses=(wd.pauses||[]).filter((_,idx)=>idx!==i);state.workDays[date]=wd;saveState();toast("Пауза удалена");
-  });
-  list.querySelectorAll("[data-pause-start],[data-pause-end]").forEach(input=>input.onchange=()=>{
-    const date=input.dataset[input.hasAttribute("data-pause-start")?"pauseStart":"pauseEnd"],i=Number(input.dataset.index),wd=state.workDays[date]||{};
-    wd.pauses=wd.pauses||[];wd.pauses[i]=wd.pauses[i]||{};
-    if(input.hasAttribute("data-pause-start")) wd.pauses[i].start=input.value; else wd.pauses[i].end=input.value;
-    state.workDays[date]=wd;saveState();toast("Пауза изменена");
+  list.querySelectorAll(".daily-hour").forEach(el=>el.onchange=()=>{
+    state.dailyHours[el.dataset.date]=Math.max(0,Math.min(24,Number(el.value)||0));
+    saveState(); toast("Часы дня сохранены");
   });
 }
-function renderSettings(){
-  document.getElementById("standardStart").value=state.settings.standardStart;
-  document.getElementById("standardEnd").value=state.settings.standardEnd;
-}
-function renderAll(){ fillYearSelects(); renderDashboard(); renderOrders(); renderProgress(); renderCalendar(); renderSettings(); }
+function renderSettings(){}
+function renderAll(){ fillYearSelects(); renderDashboard(); renderOrders(); renderProgress(); renderCalendar(); renderSettings(); renderCurrentShift(); }
 function escapeHtml(value){ return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c])); }
 function formatDate(s){
   if(!s) return "—";
   return new Intl.DateTimeFormat("ru-RU",{day:"2-digit",month:"2-digit",year:"2-digit"}).format(parseDate(s));
 }
 function syncStatusFields(){
-  const inProgress=document.getElementById("orderInProgress").checked;
-  document.getElementById("completionFields").classList.toggle("hidden",inProgress);
+  const inProgress=document.getElementById("orderStatus").checked;
+  document.getElementById("completionLabel").textContent=inProgress?"Плановая дата выполнения":"Дата окончания";
+  document.getElementById("completionTimeLabel").textContent=inProgress?"Плановое время":"Время окончания";
   document.getElementById("income").required=!inProgress;
   document.getElementById("incomeHelp").classList.toggle("hidden",!inProgress);
   updateOrderPreview();
@@ -315,12 +252,12 @@ function openOrder(id=null){
   document.getElementById("orderDialogTitle").textContent=order?"Редактировать заказ":"Новый заказ";
   document.getElementById("deleteOrderBtn").classList.toggle("hidden",!order);
   document.getElementById("orderId").value=order?.id||"";
-  document.getElementById("orderInProgress").checked=(order?.status||"completed")==="in_progress";
+  document.getElementById("orderStatus").checked=(order?.status||"completed")==="in_progress";
   document.getElementById("orderNumber").value=order?.number||"";
   document.getElementById("startDate").value=order?.startDate||todayISO();
   document.getElementById("endDate").value=order?.endDate||todayISO();
-  document.getElementById("startTime").value=order?.startTime||state.settings.standardStart;
-  document.getElementById("endTime").value=order?.endTime||state.settings.standardEnd;
+  document.getElementById("startTime").value=order?.startTime||"09:00";
+  document.getElementById("endTime").value=order?.endTime||"18:00";
   document.getElementById("workDone").value=order?.work||"";
   document.getElementById("income").value=order?.income??"";
   document.getElementById("comment").value=order?.comment||"";
@@ -330,7 +267,7 @@ function openOrder(id=null){
 function formOrder(){
   return {
     id:document.getElementById("orderId").value||crypto.randomUUID(),
-    status:document.getElementById("orderInProgress").checked?"in_progress":"completed",
+    status:document.getElementById("orderStatus").checked?"in_progress":"completed",
     number:document.getElementById("orderNumber").value.trim(),
     startDate:document.getElementById("startDate").value,
     startTime:document.getElementById("startTime").value,
@@ -354,14 +291,9 @@ document.querySelectorAll(".nav-btn").forEach(btn=>btn.onclick=()=>{
   btn.classList.add("active"); document.getElementById(btn.dataset.view).classList.add("active");
   scrollTo({top:0,behavior:"smooth"});
 });
-function nowHHMM(){const d=new Date();return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;}
 document.getElementById("addOrderBtn").onclick=()=>openOrder();
-document.getElementById("addProgressBtn").onclick=()=>{openOrder();document.getElementById("orderInProgress").checked=true;syncStatusFields();};
+document.getElementById("addProgressBtn").onclick=()=>{openOrder();document.getElementById("orderStatus").checked=true;syncStatusFields();};
 document.getElementById("closeOrderDialog").onclick=()=>document.getElementById("orderDialog").close();
-document.querySelectorAll(".set-now").forEach(btn=>btn.onclick=()=>{
-  const target=document.getElementById(btn.dataset.target);
-  if(target){target.value=nowHHMM();target.dispatchEvent(new Event("input",{bubbles:true}));}
-});
 document.getElementById("orderForm").onsubmit=e=>{
   e.preventDefault();
   const o=formOrder();
@@ -375,17 +307,53 @@ document.getElementById("deleteOrderBtn").onclick=()=>{
   if(!id||!confirm("Удалить заказ?"))return;
   state.orders=state.orders.filter(o=>o.id!==id);saveState();document.getElementById("orderDialog").close();toast("Заказ удалён");
 };
-["startDate","endDate","startTime","endTime","income"].forEach(id=>document.getElementById(id).addEventListener("input",updateOrderPreview));
-document.getElementById("orderInProgress").addEventListener("change",syncStatusFields);
+["startDate","endDate","startTime","endTime","income"].forEach(id=>document.getElementById(id).addEventListener("input",()=>{if(id.includes('Time'))document.getElementById(id).value=normalizeTime(document.getElementById(id).value);updateOrderPreview();}));
+document.querySelectorAll('.time-now').forEach(btn=>btn.onclick=()=>{document.getElementById(btn.dataset.timeTarget).value=currentTime24();updateOrderPreview();});
+document.getElementById("orderStatus").addEventListener("change",syncStatusFields);
 document.getElementById("orderSearch").oninput=renderOrders;
 document.getElementById("progressSearch").oninput=renderProgress;
 document.getElementById("yearSelect").onchange=renderDashboard;
 document.getElementById("calendarYearSelect").onchange=renderCalendar;
-document.getElementById("saveSettingsBtn").onclick=()=>{
-  const start=document.getElementById("standardStart").value,end=document.getElementById("standardEnd").value;
-  if(parseTime(end)<=parseTime(start)){toast("Конец дня должен быть позже начала");return;}
-  state.settings={standardStart:start,standardEnd:end};saveState();toast("График сохранён");
-};
+
+function formatTime24(value){
+  if(!value) return "—";
+  const m=String(value).match(/^(\d{1,2}):(\d{2})$/);
+  if(!m) return "—";
+  return `${String(Math.min(23,Number(m[1]))).padStart(2,'0')}:${m[2]}`;
+}
+function currentTime24(){ return new Date().toTimeString().slice(0,5); }
+function minutesToLabel(mins){
+  mins=Math.max(0,Math.round(mins));
+  return `${Math.floor(mins/60)} ч ${String(mins%60).padStart(2,'0')} мин`;
+}
+function currentShiftKey(){ return todayISO(); }
+function renderCurrentShift(){
+  state.workDays=state.workDays||{};
+  const key=currentShiftKey(),day=state.workDays[key]||{pauses:[]};
+  document.getElementById('currentWorkDate').textContent=new Intl.DateTimeFormat('ru-RU',{weekday:'long',day:'2-digit',month:'long',year:'numeric'}).format(new Date());
+  document.getElementById('currentWorkDateMeta').textContent=key;
+  document.getElementById('shiftStartValue').textContent=formatTime24(day.start);
+  document.getElementById('shiftEndValue').textContent=formatTime24(day.end);
+  const active=day.pauses?.find(p=>p.start&&!p.end);
+  document.getElementById('pauseWorkBtn').textContent=active?'▶ Продолжить':'Ⅱ Пауза';
+  document.getElementById('shiftPauseValue').textContent=active?`${formatTime24(active.start)} (идёт)`:(day.pauses?.length?day.pauses.map(p=>`${formatTime24(p.start)}–${formatTime24(p.end)}`).join(', '):'—');
+  const mins=workIntervals(day).reduce((sum,[a,b])=>sum+(b-a)*60,0);
+  document.getElementById('shiftWorkedValue').textContent=minutesToLabel(mins);
+  document.getElementById('shiftStartEdit').value=day.start||'';
+  document.getElementById('shiftEndEdit').value=day.end||'';
+  document.getElementById('pauseList').innerHTML=(day.pauses||[]).map((p,i)=>`<div class="pause-row"><span>${formatTime24(p.start)} – ${formatTime24(p.end||'')} </span><button type="button" class="text-btn" data-pause-edit="${i}">Редактировать</button><button type="button" class="text-btn danger-text" data-pause-delete="${i}">Удалить</button></div>`).join('');
+  document.querySelectorAll('[data-pause-edit]').forEach(b=>b.onclick=()=>{const i=Number(b.dataset.pauseEdit),p=day.pauses[i];const st=prompt('Начало паузы (HH:MM)',p.start);if(st===null)return;const en=prompt('Конец паузы (HH:MM)',p.end||'');if(en===null)return; if(!validTime(st)||(en&& !validTime(en))){toast('Введите время в формате HH:MM');return;} p.start=normalizeTime(st);p.end=en?normalizeTime(en):'';saveState();});
+  document.querySelectorAll('[data-pause-delete]').forEach(b=>b.onclick=()=>{day.pauses.splice(Number(b.dataset.pauseDelete),1);saveState();});
+}
+function validTime(v){ return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(normalizeTime(v)); }
+function normalizeTime(v){const m=String(v||'').trim().match(/^(\d{1,2})[:.](\d{1,2})$/);return m?`${String(Number(m[1])).padStart(2,'0')}:${String(Number(m[2])).padStart(2,'0')}`:String(v||'').trim();}
+function initShiftControls(){
+  document.getElementById('startWorkBtn').onclick=()=>{const k=currentShiftKey();state.workDays=state.workDays||{};state.workDays[k]=state.workDays[k]||{pauses:[]};state.workDays[k].start=currentTime24();state.workDays[k].end='';saveState();toast('Рабочий день начат');};
+  document.getElementById('pauseWorkBtn').onclick=()=>{const k=currentShiftKey();state.workDays=state.workDays||{};const d=state.workDays[k]||{pauses:[]};d.pauses=d.pauses||[];const active=d.pauses.find(p=>p.start&&!p.end);if(active){active.end=currentTime24();}else{if(!d.start){toast('Сначала нажмите «Начало рабочего дня»');return;}d.pauses.push({start:currentTime24(),end:''});}state.workDays[k]=d;saveState();};
+  document.getElementById('endWorkBtn').onclick=()=>{const k=currentShiftKey();state.workDays=state.workDays||{};const d=state.workDays[k]||{pauses:[]};const active=d.pauses?.find(p=>p.start&&!p.end);if(active)active.end=currentTime24();if(!d.start){toast('Сначала начните рабочий день');return;}d.end=currentTime24();state.workDays[k]=d;saveState();toast('Рабочий день завершён');};
+  document.getElementById('saveShiftEditBtn').onclick=()=>{const k=currentShiftKey();state.workDays=state.workDays||{};const d=state.workDays[k]||{pauses:[]};const st=document.getElementById('shiftStartEdit').value,en=document.getElementById('shiftEndEdit').value;if(st&&!validTime(st)||(en&&!validTime(en))){toast('Введите время в формате HH:MM');return;}d.start=st?normalizeTime(st):'';d.end=en?normalizeTime(en):'';d.pauses=d.pauses||[];state.workDays[k]=d;saveState();toast('Время смены сохранено');};
+}
+
 function download(name,text,type){
   const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
@@ -411,4 +379,5 @@ document.getElementById("resetBtn").onclick=()=>{
 window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredInstallPrompt=e;document.getElementById("installBtn").classList.remove("hidden");});
 document.getElementById("installBtn").onclick=async()=>{if(!deferredInstallPrompt)return;deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;document.getElementById("installBtn").classList.add("hidden");};
 if("serviceWorker" in navigator&&location.protocol.startsWith("http"))navigator.serviceWorker.register("sw.js");
+initShiftControls();
 renderAll();

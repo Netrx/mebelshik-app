@@ -82,36 +82,15 @@
     </section>
 
     <section id="calendarView" class="view">
+      <div id="currentHoursDate" class="hours-current-date"></div>
       <div class="toolbar">
         <div>
-          <div class="section-kicker">ЧАСЫ</div>
-          <h2 id="currentWorkDate">Сегодня</h2>
-          <div id="currentWorkDateMeta" class="muted"></div>
+          <div class="section-kicker">КАЛЕНДАРЬ</div>
+          <h2>Часы по дням</h2>
         </div>
         <select id="calendarYearSelect" aria-label="Год календаря"></select>
       </div>
-
-      <div class="panel shift-panel">
-        <div class="shift-actions">
-          <button id="startWorkBtn" class="primary">▶ Начало рабочего дня</button>
-          <button id="pauseWorkBtn" class="secondary">Ⅱ Пауза</button>
-          <button id="endWorkBtn" class="secondary">■ Конец рабочего дня</button>
-        </div>
-        <div class="shift-times">
-          <div><span>Начало</span><strong id="shiftStartValue">—</strong></div>
-          <div><span>Пауза</span><strong id="shiftPauseValue">—</strong></div>
-          <div><span>Конец</span><strong id="shiftEndValue">—</strong></div>
-          <div><span>Отработано</span><strong id="shiftWorkedValue">0 ч 00 мин</strong></div>
-        </div>
-        <div id="pauseList" class="pause-list"></div>
-        <div class="shift-edit-row">
-          <label>Начало <input id="shiftStartEdit" class="time24" type="text" inputmode="numeric" maxlength="5" placeholder="09:00"></label>
-          <label>Конец <input id="shiftEndEdit" class="time24" type="text" inputmode="numeric" maxlength="5" placeholder="18:00"></label>
-          <button id="saveShiftEditBtn" class="secondary">Сохранить время</button>
-        </div>
-      </div>
-
-      <div class="notice">Время смены считается только по фактическим отметкам. Паузы полностью вычитаются. Будущие часы не попадают в отчётность.</div>
+      <div class="notice">Для каждого дня фиксируйте фактическую смену кнопками. Пауза вычитается из рабочего времени. Все расчёты заказов и отчётности используют эти интервалы.</div>
       <div id="weeksList" class="weeks-list"></div>
     </section>
 
@@ -121,9 +100,7 @@
           <div class="section-kicker">НАСТРОЙКИ</div>
           <h2>Данные и график</h2>
         </div>
-      </div>
-
-      <div class="panel form-panel">
+      </div><div class="panel form-panel">
         <h3>Резервная копия</h3>
         <p class="muted">Данные хранятся только на этом устройстве. Экспорт спасает их от героической гибели вместе с телефоном.</p>
         <div class="action-stack">
@@ -136,7 +113,7 @@
 
       <div class="panel about">
         <h3>О приложении</h3>
-        <p>Версия 1.1 · работает офлайн · без регистрации · данные не отправляются на сервер.</p>
+        <p>Версия 1.2 · работает офлайн · без регистрации · данные не отправляются на сервер.</p>
       </div>
     </section>
   </main>
@@ -159,15 +136,19 @@
         <button type="button" id="closeOrderDialog" class="icon-btn">×</button>
       </div>
       <input id="orderId" type="hidden">
-      <label class="checkbox-row"><input id="orderStatus" type="checkbox"> В процессе</label>
+      <label class="check-row"><input id="orderInProgress" type="checkbox"><span>В процессе</span></label>
       <label>Номер заказа<input id="orderNumber" required placeholder="Например, 1056"></label>
       <div class="two-cols">
         <label>Дата начала<input id="startDate" type="date" required></label>
-        <label>Время начала<div class="time-with-now"><input id="startTime" class="time24" type="text" inputmode="numeric" maxlength="5" placeholder="09:00" required><button type="button" class="time-now" data-time-target="startTime">Сейчас</button></div></label>
+        <label>Время начала
+          <div class="time-with-now"><input id="startTime" type="time" required><button type="button" class="secondary now-btn set-now" data-target="startTime">Сейчас</button></div>
+        </label>
       </div>
-      <div class="two-cols">
-        <label><span id="completionLabel">Дата окончания</span><input id="endDate" type="date" required></label>
-        <label><span id="completionTimeLabel">Время окончания</span><div class="time-with-now"><input id="endTime" class="time24" type="text" inputmode="numeric" maxlength="5" placeholder="18:00" required><button type="button" class="time-now" data-time-target="endTime">Сейчас</button></div></label>
+      <div id="completionFields" class="two-cols">
+        <label>Дата окончания<input id="endDate" type="date"></label>
+        <label>Время окончания
+          <div class="time-with-now"><input id="endTime" type="time"><button type="button" class="secondary now-btn set-now" data-target="endTime">Сейчас</button></div>
+        </label>
       </div>
       <label>Что сделано<textarea id="workDone" rows="3" placeholder="Обработка, присадка, сборка…"></textarea></label>
       <label>Доход по заказу, ₽<input id="income" type="number" min="0" step="0.01" required><small id="incomeHelp" class="field-help hidden">Можно указать плановый доход. Пока заказ в процессе, он не учитывается.</small></label>

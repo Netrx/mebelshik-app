@@ -89,7 +89,7 @@
         </div>
         <select id="calendarYearSelect" aria-label="Год календаря"></select>
       </div>
-      <div class="notice">Для каждого дня укажите начало и конец рабочего дня. Кнопка «Сейчас» подставляет текущее время. Паузы вычитаются из рабочего времени. Именно эти интервалы используются для расчёта отработанных часов и времени по заказам.</div>
+      <div class="notice">Укажите фактически отработанные часы отдельно для любого дня. Будущие даты можно планировать, но до наступления дня они не попадут в аналитику. Ноль означает выходной.</div>
       <div id="weeksList" class="weeks-list"></div>
     </section>
 
@@ -146,19 +146,15 @@
         <button type="button" id="closeOrderDialog" class="icon-btn">×</button>
       </div>
       <input id="orderId" type="hidden">
-      <label class="checkbox-row order-status-check"><input id="orderInProgress" type="checkbox"><span>В процессе</span></label>
+      <label>Статус заказа<select id="orderStatus"><option value="completed">Завершён</option><option value="in_progress">В процессе</option></select></label>
       <label>Номер заказа<input id="orderNumber" required placeholder="Например, 1056"></label>
       <div class="two-cols">
         <label>Дата начала<input id="startDate" type="date" required></label>
-        <label>Время начала
-          <div class="time-with-button"><input id="startTime" type="time" required><button type="button" class="now-btn set-now-btn" data-target="startTime">Сейчас</button></div>
-        </label>
+        <label>Время начала<input id="startTime" type="time" required></label>
       </div>
-      <div id="completionFields" class="two-cols">
-        <label>Дата окончания<input id="endDate" type="date" required></label>
-        <label>Время окончания
-          <div class="time-with-button"><input id="endTime" type="time" required><button type="button" class="now-btn set-now-btn" data-target="endTime">Сейчас</button></div>
-        </label>
+      <div class="two-cols">
+        <label><span id="completionLabel">Дата окончания</span><input id="endDate" type="date" required></label>
+        <label><span id="completionTimeLabel">Время окончания</span><input id="endTime" type="time" required></label>
       </div>
       <label>Что сделано<textarea id="workDone" rows="3" placeholder="Обработка, присадка, сборка…"></textarea></label>
       <label>Доход по заказу, ₽<input id="income" type="number" min="0" step="0.01" required><small id="incomeHelp" class="field-help hidden">Можно указать плановый доход. Пока заказ в процессе, он не учитывается.</small></label>
